@@ -25,7 +25,7 @@ YOLO_PLATE_DETECTOR_PATH = os.path.join(os.path.dirname(__file__), '..', 'models
 # Puedes añadir más fuentes, como una URL de una cámara IP.
 CAMERA_SOURCES = {
     "webcam": 0,
-    "ip_cam_cellphone": "http://192.168.1.10:8080/video" # Ejemplo, reemplaza con la URL de tu app de cámara IP
+    "ip_cam_cellphone": "http://10.244.244.82:8080/video" # Ejemplo, reemplaza con la URL de tu app de cámara IP
 }
 
 # --- Clases de Objetos ---
