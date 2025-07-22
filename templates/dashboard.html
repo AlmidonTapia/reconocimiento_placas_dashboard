@@ -1,0 +1,1338 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard de Reconocimiento de Placas</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #102b74 0%, #0f1a40 100%);
+            min-height: 100vh;
+            color: #1a202c;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            color: #2d3748;
+            padding: 32px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            backdrop-filter: blur(8px);
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #1a202c;
+            letter-spacing: -0.025em;
+        }
+
+        .header p {
+            font-size: 1rem;
+            color: #718096;
+            font-weight: 400;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 360px;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        .video-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            backdrop-filter: blur(8px);
+        }
+
+        .controls-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            backdrop-filter: blur(8px);
+        }
+
+        .video-section h2,
+        .controls-section h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 20px;
+            letter-spacing: -0.025em;
+        }
+
+        .video-container {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        #videoFeed {
+            max-width: 100%;
+            height: auto;
+            border-radius: 8px;
+            background: #f7fafc;
+            min-height: 320px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            color: #718096;
+            border: 2px dashed #e2e8f0;
+        }
+
+        .control-group {
+            margin-bottom: 24px;
+        }
+
+        .control-group h3 {
+            color: #4a5568;
+            margin-bottom: 12px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .btn {
+            background: #4299e1;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            font-weight: 500;
+            font-size: 0.875rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+
+        .btn:hover {
+            background: #3182ce;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(66, 153, 225, 0.3);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-danger {
+            background: #f56565;
+        }
+
+        .btn-danger:hover {
+            background: #e53e3e;
+            box-shadow: 0 4px 12px rgba(245, 101, 101, 0.3);
+        }
+
+        .btn-warning {
+            background: #ed8936;
+        }
+
+        .btn-warning:hover {
+            background: #dd6b20;
+            box-shadow: 0 4px 12px rgba(237, 137, 54, 0.3);
+        }
+
+        .status {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-weight: 500;
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status.connected {
+            background: #f0fff4;
+            color: #276749;
+            border: 1px solid #9ae6b4;
+        }
+
+        .status.disconnected {
+            background: #fef5e7;
+            color: #c05621;
+            border: 1px solid #feb2b2;
+        }
+
+        .status.processing {
+            background: #fffaf0;
+            color: #b45309;
+            border: 1px solid #fbd38d;
+        }
+
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            background: white;
+            color: #2d3748;
+            transition: border-color 0.15s ease;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #4299e1;
+            box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+        }
+
+        /* Estilos para el control deslizante de deduplicación */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: #e2e8f0;
+            outline: none;
+            margin: 8px 0;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #4299e1;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            transition: background 0.15s ease;
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            background: #3182ce;
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #4299e1;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .plates-section {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+            backdrop-filter: blur(8px);
+            grid-column: span 2;
+        }
+
+        .plates-section h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 20px;
+            letter-spacing: -0.025em;
+        }
+
+        .plates-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+
+        .plates-table th,
+        .plates-table td {
+            text-align: left;
+            padding: 12px 16px;
+            border-bottom: 1px solid #e2e8f0;
+            font-size: 0.875rem;
+        }
+
+        .plates-table th {
+            background: #f7fafc;
+            font-weight: 600;
+            color: #4a5568;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 0.75rem;
+        }
+
+        .plates-table tr:hover {
+            background: #f7fafc;
+        }
+
+        .plate-text {
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            font-weight: 600;
+            font-size: 1rem;
+            color: #2d3748;
+            background: #edf2f7;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: #f7fafc;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+        }
+
+        .stat-number {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: #718096;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+        }
+
+        #systemStatus {
+            background: #f7fafc;
+            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        #systemStatus p {
+            margin: 8px 0;
+            font-size: 0.875rem;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        #systemStatus strong {
+            color: #4a5568;
+            font-weight: 600;
+        }
+
+        .view-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 500;
+            padding: 6px 10px;
+            border-radius: 6px;
+            transition: all 0.2s ease;
+            margin: 1px;
+            min-width: 42px;
+            height: 28px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            text-decoration: none;
+            white-space: nowrap;
+        }
+
+        .view-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        .view-btn.delete {
+            background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+        }
+
+        .view-btn.delete:hover {
+            box-shadow: 0 4px 8px rgba(245, 101, 101, 0.3);
+        }
+
+        .view-btn.consult {
+            background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
+        }
+
+        .view-btn.consult:hover {
+            box-shadow: 0 4px 8px rgba(56, 161, 105, 0.3);
+        }
+
+        .actions-column {
+            width: 180px;
+            text-align: center;
+            padding: 4px;
+        }
+
+        .actions-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 2px;
+            flex-wrap: nowrap;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .plates-section {
+                grid-column: span 1;
+            }
+
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
+
+        /* Estilos para el modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-content {
+            position: relative;
+            background-color: rgba(255, 255, 255, 0.95);
+            margin: 2% auto;
+            padding: 32px;
+            border-radius: 12px;
+            width: 95%;
+            max-width: 900px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .modal-header h3 {
+            margin: 0;
+            color: #2d3748;
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .close-btn {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            font-size: 20px;
+            cursor: pointer;
+            color: #718096;
+            transition: all 0.15s ease;
+            padding: 8px;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+        }
+
+        .close-btn:hover {
+            color: #2d3748;
+            background-color: #edf2f7;
+            border-color: #cbd5e0;
+        }
+
+        .modal-image {
+            width: 100%;
+            max-height: 400px;
+            object-fit: contain;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .modal-body {
+            text-align: center;
+        }
+
+        .modal-body p {
+            margin: 8px 0;
+            font-size: 0.875rem;
+            color: #4a5568;
+        }
+
+        /* Estilos para modal de consulta SUNARP */
+        .sunarp-info {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+        }
+
+        .sunarp-info h4 {
+            color: #2d3748;
+            margin-bottom: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            font-size: 0.875rem;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #4a5568;
+        }
+
+        .info-value {
+            color: #2d3748;
+            text-align: right;
+        }
+
+        .loading-spinner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: #718096;
+        }
+
+        .error-message {
+            background: #fed7d7;
+            border: 1px solid #feb2b2;
+            color: #c53030;
+            padding: 12px;
+            border-radius: 6px;
+            margin: 16px 0;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Dashboard de Reconocimiento de Placas</h1>
+            <p>Sistema automatizado para detección y análisis de matrículas vehiculares</p>
+        </div>
+
+        <div class="dashboard-grid">
+            <div class="video-section">
+                <h2>Video en Tiempo Real</h2>
+                <div class="video-container">
+                    <div id="videoFeed">
+                        Conectando con la cámara...
+                    </div>
+                </div>
+
+                <div class="stats">
+                    <div class="stat-card">
+                        <div class="stat-number" id="totalPlates">0</div>
+                        <div class="stat-label">Total Placas</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="sessionPlates">0</div>
+                        <div class="stat-label">Esta Sesión</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-number" id="fps">0</div>
+                        <div class="stat-label">FPS</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="controls-section">
+                <h2>Controles</h2>
+
+                <div id="connectionStatus" class="status disconnected">
+                    <span class="loading"></span>
+                    Conectando al servidor...
+                </div>
+
+                <div class="control-group">
+                    <h3>Fuente de Cámara</h3>
+                    <select id="cameraSelect">
+                        <option value="webcam">Webcam</option>
+                        <option value="ip_cam_cellphone">Cámara IP</option>
+                    </select>
+                </div>
+
+                <div class="control-group">
+                    <h3>Control de Video</h3>
+                    <button id="startBtn" class="btn">▶ Iniciar</button>
+                    <button id="stopBtn" class="btn btn-danger" style="display: none;">⏹ Detener</button>
+                </div>
+
+                <div class="control-group">
+                    <h3>Estado del Sistema</h3>
+                    <div id="systemStatus">
+                        <p><strong>Procesamiento:</strong> <span id="processingStatus">Detenido</span></p>
+                        <p><strong>Cámara Activa:</strong> <span id="activeCamera">Ninguna</span></p>
+                        <p><strong>Última Detección:</strong> <span id="lastDetection">--</span></p>
+                        <p><strong>Total Placas:</strong> <span id="totalPlates">0</span></p>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <h3>Base de Datos</h3>
+                    <button id="clearDbBtn" class="btn btn-warning">🗑 Limpiar BD</button>
+                    <button id="refreshPlatesBtn" class="btn">🔄 Actualizar</button>
+                </div>
+
+                <div class="control-group">
+                    <h3>Configuración Anti-Duplicados</h3>
+                    <div style="margin-bottom: 12px;">
+                        <label for="dedupTime"
+                            style="display: block; font-size: 0.75rem; color: #4a5568; margin-bottom: 4px;">
+                            Tiempo de deduplicación (segundos):
+                        </label>
+                        <input type="range" id="dedupTime" min="5" max="120" value="30"
+                            style="width: 100%; margin-bottom: 8px;">
+                        <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #718096;">
+                            <span>5s</span>
+                            <span id="dedupTimeValue">30s</span>
+                            <span>120s</span>
+                        </div>
+                    </div>
+                    <button id="updateDedupBtn" class="btn">💾 Aplicar</button>
+                    <button id="clearCacheBtn" class="btn btn-warning" style="margin-left: 8px;">🧹 Limpiar
+                        Cache</button>
+                    <p style="font-size: 0.75rem; color: #718096; margin-top: 8px;">
+                        Evita registrar la misma placa múltiples veces en el tiempo especificado.
+                        <br><span id="cacheStatus">Cache: 0 elementos</span>
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="plates-section">
+            <h2>Placas Detectadas Recientemente</h2>
+            <table class="plates-table">
+                <thead>
+                    <tr>
+                        <th>Placa</th>
+                        <th>Fecha y Hora</th>
+                        <th>Cámara</th>
+                        <th>Estado</th>
+                        <th class="actions-column">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody id="platesTableBody">
+                    <tr>
+                        <td colspan="5" style="text-align: center; padding: 40px; color: #718096;">
+                            No hay placas detectadas aún
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Modal para visualizar imágenes -->
+    <div id="imageModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Imagen Capturada</h3>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+            <div id="modalBody" class="modal-body">
+                <img id="modalImage" class="modal-image" src="" alt="Imagen de placa">
+                <div style="margin-top: 16px;">
+                    <p><strong>Placa:</strong> <span id="modalPlateText"></span></p>
+                    <p><strong>Fecha:</strong> <span id="modalDateTime"></span></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para consulta SUNARP -->
+    <div id="sunarpModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Consulta Vehicular - SUNARP</h3>
+                <button class="close-btn" onclick="closeSunarpModal()">&times;</button>
+            </div>
+            <div id="sunarpModalBody" class="modal-body">
+                <p><strong>Placa:</strong> <span id="sunarpPlateText"></span></p>
+                <div id="sunarpContent">
+                    <!-- El contenido se cargará dinámicamente -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuración del WebSocket
+        const socket = io();
+
+        // Referencias a elementos del DOM
+        const videoFeed = document.getElementById('videoFeed');
+        const connectionStatus = document.getElementById('connectionStatus');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const cameraSelect = document.getElementById('cameraSelect');
+        const platesTableBody = document.getElementById('platesTableBody');
+        const totalPlatesCounter = document.getElementById('totalPlates');
+        const sessionPlatesCounter = document.getElementById('sessionPlates');
+        const fpsCounter = document.getElementById('fps');
+        const processingStatus = document.getElementById('processingStatus');
+        const activeCamera = document.getElementById('activeCamera');
+        const lastDetection = document.getElementById('lastDetection');
+        const clearDbBtn = document.getElementById('clearDbBtn');
+        const refreshPlatesBtn = document.getElementById('refreshPlatesBtn');
+        const dedupTimeSlider = document.getElementById('dedupTime');
+        const dedupTimeValue = document.getElementById('dedupTimeValue');
+        const updateDedupBtn = document.getElementById('updateDedupBtn');
+        const clearCacheBtn = document.getElementById('clearCacheBtn');
+        const cacheStatus = document.getElementById('cacheStatus');
+
+        // Variables de estado
+        let sessionPlatesCount = 0;
+        let lastFrameTime = Date.now();
+        let frameCount = 0;
+
+        // Eventos del WebSocket
+        socket.on('connect', () => {
+            console.log('Conectado al servidor');
+            connectionStatus.className = 'status connected';
+            connectionStatus.innerHTML = '● Conectado';
+            loadInitialPlates();
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Desconectado del servidor');
+            connectionStatus.className = 'status disconnected';
+            connectionStatus.innerHTML = '● Desconectado';
+            videoFeed.innerHTML = 'Conexión perdida...';
+        });
+
+        socket.on('video_frame', (data) => {
+            const img = new Image();
+            img.onload = () => {
+                videoFeed.innerHTML = '';
+                videoFeed.appendChild(img);
+
+                // Calcular FPS
+                frameCount++;
+                const now = Date.now();
+                if (now - lastFrameTime >= 1000) {
+                    fpsCounter.textContent = frameCount;
+                    frameCount = 0;
+                    lastFrameTime = now;
+                }
+            };
+            img.src = 'data:image/jpeg;base64,' + data.image;
+            img.style.maxWidth = '100%';
+            img.style.height = 'auto';
+            img.style.borderRadius = '10px';
+        });
+
+        socket.on('new_plate', (data) => {
+            console.log('Nueva placa detectada:', data);
+            data.plates.forEach(plate => {
+                addPlateToTable(plate);
+                sessionPlatesCount++;
+                sessionPlatesCounter.textContent = sessionPlatesCount;
+                lastDetection.textContent = new Date().toLocaleTimeString();
+            });
+        });
+
+        socket.on('status_update', (data) => {
+            console.log('Actualización de estado:', data);
+            processingStatus.textContent = data.processing_active ? 'Activo' : 'Detenido';
+            activeCamera.textContent = data.active_camera || 'Ninguna';
+
+            if (data.processing_active) {
+                connectionStatus.className = 'status processing';
+                connectionStatus.innerHTML = '● Procesando...';
+                startBtn.style.display = 'none';
+                stopBtn.style.display = 'inline-block';
+            } else {
+                connectionStatus.className = 'status connected';
+                connectionStatus.innerHTML = '● Conectado';
+                startBtn.style.display = 'inline-block';
+                stopBtn.style.display = 'none';
+                videoFeed.innerHTML = 'Video detenido. Presiona "Iniciar" para comenzar.';
+            }
+        });
+
+        // Evento para actualización de base de datos
+        socket.on('database_updated', (data) => {
+            console.log('Base de datos actualizada:', data);
+            totalPlatesCounter.textContent = data.total_plates;
+
+            // Actualizar también el contador en el estado del sistema
+            const systemTotalPlates = document.getElementById('totalPlates');
+            if (systemTotalPlates) {
+                systemTotalPlates.textContent = data.total_plates;
+            }
+
+            if (data.action === 'clear') {
+                // Limpiar la tabla si se limpiaron todos los registros
+                platesTableBody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 40px; color: #718096;">No hay placas detectadas aún</td></tr>';
+            } else if (data.action === 'delete') {
+                // Recargar la tabla después de eliminar un registro
+                loadInitialPlates();
+            }
+        });
+
+        // Evento específico para limpiar placas
+        socket.on('plates_cleared', (data) => {
+            console.log('Placas limpiadas:', data);
+            totalPlatesCounter.textContent = data.count;
+            sessionPlatesCounter.textContent = 0; // También resetear contador de sesión
+            sessionPlatesCount = 0;
+
+            // Limpiar la tabla
+            platesTableBody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 40px; color: #718096;">No hay placas detectadas aún</td></tr>';
+        });
+
+        // Eventos de los controles
+        startBtn.addEventListener('click', () => {
+            const selectedCamera = cameraSelect.value;
+            console.log('Iniciando stream con cámara:', selectedCamera);
+            socket.emit('control_stream', {
+                action: 'start',
+                camera_source: selectedCamera
+            });
+        });
+
+        stopBtn.addEventListener('click', () => {
+            console.log('Deteniendo stream');
+            socket.emit('control_stream', {
+                action: 'stop'
+            });
+        });
+
+        cameraSelect.addEventListener('change', () => {
+            const selectedCamera = cameraSelect.value;
+            console.log('Cambiando cámara a:', selectedCamera);
+            socket.emit('control_stream', {
+                action: 'switch_camera',
+                camera_source: selectedCamera
+            });
+        });
+
+        // Eventos para los botones de base de datos
+        clearDbBtn.addEventListener('click', () => {
+            if (confirm('¿Estás seguro de que quieres limpiar toda la base de datos? Esta acción no se puede deshacer.')) {
+                fetch('/api/plates/clear', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert('Base de datos limpiada exitosamente');
+                            loadInitialPlates(); // Recargar la tabla
+                            updatePlatesCount(); // Actualizar contador
+                        } else {
+                            alert('Error al limpiar la base de datos: ' + data.message);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Error de conexión al limpiar la base de datos');
+                    });
+            }
+        });
+
+        refreshPlatesBtn.addEventListener('click', () => {
+            loadInitialPlates();
+            updatePlatesCount();
+        });
+
+        // Eventos para configuración de deduplicación
+        dedupTimeSlider.addEventListener('input', (e) => {
+            dedupTimeValue.textContent = e.target.value + 's';
+        });
+
+        updateDedupBtn.addEventListener('click', () => {
+            const dedupTime = parseInt(dedupTimeSlider.value);
+
+            fetch('/api/settings/deduplication', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    deduplication_time: dedupTime
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert(`✅ ${data.message}`);
+                    } else {
+                        alert(`❌ Error: ${data.message}`);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error de conexión al actualizar configuración');
+                });
+        });
+
+        clearCacheBtn.addEventListener('click', () => {
+            if (confirm('¿Estás seguro de que quieres limpiar el cache de deduplicación? Esto permitirá detectar placas que estaban siendo filtradas.')) {
+                fetch('/api/cache/clear', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert(`✅ ${data.message}`);
+                            updateCacheStatus(); // Actualizar el estado del cache
+                        } else {
+                            alert(`❌ Error: ${data.message}`);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Error de conexión al limpiar cache');
+                    });
+            }
+        });
+
+        // Funciones auxiliares
+        function addPlateToTable(plate) {
+            // Si es la primera placa, limpiar el mensaje de "No hay placas"
+            if (platesTableBody.children.length === 1 && platesTableBody.children[0].children.length === 1) {
+                platesTableBody.innerHTML = '';
+            }
+
+            const timestamp = new Date().toLocaleString();
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td><span class="plate-text">${plate.plate}</span></td>
+                <td>${timestamp}</td>
+                <td>${plate.camera}</td>
+                <td>Nueva</td>
+                <td class="actions-column">
+                    <div class="actions-row">
+                        <button class="view-btn" onclick="openModal('${plate.plate}', '${timestamp}', '${plate.image || ''}')" title="Ver imagen">
+                            👁 Ver
+                        </button>
+                        <button class="view-btn delete" onclick="deletePlate('${plate.plate}', '${timestamp}')" title="Eliminar">
+                            🗑 Del
+                        </button>
+                        <button class="view-btn consult" onclick="consultSunarp('${plate.plate}')" title="Consultar SUNARP">
+                            🔍 SUNARP
+                        </button>
+                    </div>
+                </td>
+            `;
+
+            // Insertar al principio de la tabla
+            platesTableBody.insertBefore(row, platesTableBody.firstChild);
+
+            // Limitar a 20 filas máximo
+            while (platesTableBody.children.length > 20) {
+                platesTableBody.removeChild(platesTableBody.lastChild);
+            }
+
+            // Efecto de highlight para la nueva fila
+            row.style.backgroundColor = '#e6fffa';
+            setTimeout(() => {
+                row.style.backgroundColor = '';
+            }, 2000);
+        }
+
+        function loadInitialPlates() {
+            fetch('/api/plates')
+                .then(response => response.json())
+                .then(plates => {
+                    console.log('Placas cargadas:', plates);
+
+                    if (plates.length > 0) {
+                        platesTableBody.innerHTML = '';
+                        plates.forEach(plate => {
+                            const row = document.createElement('tr');
+                            row.innerHTML = `
+                                <td><span class="plate-text">${plate.plate}</span></td>
+                                <td>${new Date(plate.timestamp).toLocaleString()}</td>
+                                <td>${plate.camera}</td>
+                                <td>Almacenada</td>
+                                <td class="actions-column">
+                                    <div class="actions-row">
+                                        <button class="view-btn" onclick="openModal('${plate.plate}', '${new Date(plate.timestamp).toLocaleString()}', '${plate.image_base64 || ''}')" title="Ver imagen">
+                                            👁 Ver
+                                        </button>
+                                        <button class="view-btn delete" onclick="deletePlate('${plate.plate}', '${plate.timestamp}')" title="Eliminar">
+                                            🗑 Del
+                                        </button>
+                                        <button class="view-btn consult" onclick="consultSunarp('${plate.plate}')" title="Consultar SUNARP">
+                                            🔍 SUNARP
+                                        </button>
+                                    </div>
+                                </td>
+                            `;
+                            platesTableBody.appendChild(row);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error al cargar placas:', error);
+                });
+        }
+
+        function updatePlatesCount() {
+            fetch('/api/plates/count')
+                .then(response => response.json())
+                .then(data => {
+                    totalPlatesCounter.textContent = data.count;
+                })
+                .catch(error => {
+                    console.error('Error al obtener contador:', error);
+                });
+        }
+
+        function loadDeduplicationSettings() {
+            fetch('/api/settings/deduplication')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.deduplication_time) {
+                        dedupTimeSlider.value = data.deduplication_time;
+                        dedupTimeValue.textContent = data.deduplication_time + 's';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error al cargar configuración de deduplicación:', error);
+                });
+        }
+
+        function updateCacheStatus() {
+            fetch('/api/cache/stats')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        cacheStatus.textContent = `Cache: ${data.cache_size} elementos`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error al obtener estadísticas del cache:', error);
+                });
+        }
+
+        // Funciones del modal
+        function openModal(plateText, dateTime, imageBase64) {
+            const modal = document.getElementById('imageModal');
+            const modalImage = document.getElementById('modalImage');
+            const modalPlateText = document.getElementById('modalPlateText');
+            const modalDateTime = document.getElementById('modalDateTime');
+
+            // Configurar contenido del modal
+            modalPlateText.textContent = plateText;
+            modalDateTime.textContent = dateTime;
+
+            if (imageBase64 && imageBase64 !== '') {
+                modalImage.src = 'data:image/jpeg;base64,' + imageBase64;
+                modalImage.style.display = 'block';
+            } else {
+                modalImage.style.display = 'none';
+                modalImage.src = '';
+                // Mostrar mensaje de imagen no disponible
+                modalImage.insertAdjacentHTML('afterend',
+                    '<p style="text-align: center; color: #718096; padding: 40px;">Imagen no disponible</p>');
+            }
+
+            modal.style.display = 'block';
+            document.body.style.overflow = 'hidden'; // Evitar scroll del fondo
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('imageModal');
+            modal.style.display = 'none';
+            document.body.style.overflow = 'auto'; // Restaurar scroll
+
+            // Limpiar mensaje de imagen no disponible si existe
+            const noImageMsg = modal.querySelector('p');
+            if (noImageMsg && noImageMsg.textContent.includes('Imagen no disponible')) {
+                noImageMsg.remove();
+            }
+        }
+
+        // Cerrar modal al hacer clic fuera de él
+        window.onclick = function (event) {
+            const imageModal = document.getElementById('imageModal');
+            const sunarpModal = document.getElementById('sunarpModal');
+
+            if (event.target === imageModal) {
+                closeModal();
+            }
+            if (event.target === sunarpModal) {
+                closeSunarpModal();
+            }
+        }
+
+        // Cerrar modal con la tecla Escape
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') {
+                closeModal();
+                closeSunarpModal();
+            }
+        });
+
+        // Función para eliminar una placa
+        function deletePlate(plateText, timestamp) {
+            if (confirm(`¿Estás seguro de que quieres eliminar la placa ${plateText}?`)) {
+                fetch('/api/plates/delete', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        plate: plateText,
+                        timestamp: timestamp
+                    })
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert('Placa eliminada exitosamente');
+                            loadInitialPlates(); // Recargar la tabla
+                            updatePlatesCount(); // Actualizar contador
+                        } else {
+                            alert('Error al eliminar la placa: ' + data.message);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Error de conexión al eliminar la placa');
+                    });
+            }
+        }
+
+        // Función para consultar en SUNARP
+        function consultSunarp(plateText) {
+            const modal = document.getElementById('sunarpModal');
+            const sunarpPlateText = document.getElementById('sunarpPlateText');
+            const sunarpContent = document.getElementById('sunarpContent');
+
+            // Configurar el modal
+            sunarpPlateText.textContent = plateText;
+            sunarpContent.innerHTML = `
+                <div class="loading-spinner">
+                    <div class="loading"></div>
+                    <span style="margin-left: 12px;">Consultando información vehicular en SUNARP...</span>
+                </div>
+            `;
+
+            modal.style.display = 'block';
+            document.body.style.overflow = 'hidden';
+
+            // Realizar consulta al backend
+            fetch('/api/sunarp/consult', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ plate: plateText })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const info = data.data;
+                        let screenshotHtml = '';
+
+                        // Mostrar screenshot si está disponible
+                        if (data.screenshot) {
+                            // Decodificar el HTML capturado
+                            const decodedHtml = atob(data.screenshot);
+                            screenshotHtml = `
+                                <div style="margin-bottom: 20px;">
+                                    <h4 style="margin-bottom: 12px;">Captura de SUNARP</h4>
+                                    <div style="max-width: 100%; border-radius: 8px; border: 1px solid #e2e8f0; max-height: 300px; overflow-y: auto; background: #f8f9fa;">
+                                        ${decodedHtml}
+                                    </div>
+                                </div>
+                            `;
+                        }
+
+                        sunarpContent.innerHTML = `
+                        ${screenshotHtml}
+                        <div class="sunarp-info">
+                            <h4>Información del Vehículo</h4>
+                            <div class="info-row">
+                                <span class="info-label">Placa:</span>
+                                <span class="info-value">${info.placa || 'No disponible'}</span>
+                            </div>
+                            ${info.serie ? `
+                            <div class="info-row">
+                                <span class="info-label">N° Serie:</span>
+                                <span class="info-value">${info.serie}</span>
+                            </div>
+                            ` : ''}
+                            ${info.vin ? `
+                            <div class="info-row">
+                                <span class="info-label">N° VIN:</span>
+                                <span class="info-value">${info.vin}</span>
+                            </div>
+                            ` : ''}
+                            ${info.motor ? `
+                            <div class="info-row">
+                                <span class="info-label">N° Motor:</span>
+                                <span class="info-value">${info.motor}</span>
+                            </div>
+                            ` : ''}
+                            ${info.propietario ? `
+                            <div class="info-row">
+                                <span class="info-label">Propietario:</span>
+                                <span class="info-value">${info.propietario}</span>
+                            </div>
+                            ` : ''}
+                            <div class="info-row">
+                                <span class="info-label">Marca:</span>
+                                <span class="info-value">${info.marca || 'No disponible'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Modelo:</span>
+                                <span class="info-value">${info.modelo || 'No disponible'}</span>
+                            </div>
+                            ${info.año ? `
+                            <div class="info-row">
+                                <span class="info-label">Año:</span>
+                                <span class="info-value">${info.año}</span>
+                            </div>
+                            ` : ''}
+                            <div class="info-row">
+                                <span class="info-label">Color:</span>
+                                <span class="info-value">${info.color || 'No disponible'}</span>
+                            </div>
+                            <div class="info-row">
+                                <span class="info-label">Estado:</span>
+                                <span class="info-value">${info.estado || 'No disponible'}</span>
+                            </div>
+                            ${info.placa_vigente ? `
+                            <div class="info-row">
+                                <span class="info-label">Placa Vigente:</span>
+                                <span class="info-value">${info.placa_vigente}</span>
+                            </div>
+                            ` : ''}
+                            ${info.placa_anterior ? `
+                            <div class="info-row">
+                                <span class="info-label">Placa Anterior:</span>
+                                <span class="info-value">${info.placa_anterior}</span>
+                            </div>
+                            ` : ''}
+                            ${info.sede ? `
+                            <div class="info-row">
+                                <span class="info-label">Sede:</span>
+                                <span class="info-value">${info.sede}</span>
+                            </div>
+                            ` : ''}
+                            ${info.anotaciones ? `
+                            <div class="info-row">
+                                <span class="info-label">Anotaciones:</span>
+                                <span class="info-value">${info.anotaciones}</span>
+                            </div>
+                            ` : ''}
+                        </div>
+                    `;
+                    } else {
+                        sunarpContent.innerHTML = `
+                        <div class="error-message">
+                            ${data.message || 'No se pudo obtener información del vehículo'}
+                        </div>
+                    `;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    sunarpContent.innerHTML = `
+                    <div class="error-message">
+                        Error de conexión al consultar SUNARP
+                    </div>
+                `;
+                });
+        }
+
+        // Función para cerrar modal SUNARP
+        function closeSunarpModal() {
+            const modal = document.getElementById('sunarpModal');
+            modal.style.display = 'none';
+            document.body.style.overflow = 'auto';
+        }
+
+        // Inicialización
+        loadInitialPlates();
+        updatePlatesCount();
+        loadDeduplicationSettings();
+        updateCacheStatus();
+
+        // Actualizar estado del cache cada 10 segundos
+        setInterval(updateCacheStatus, 10000);
+
+        console.log('Dashboard inicializado');
+    </script>
+</body>
+
+</html>
