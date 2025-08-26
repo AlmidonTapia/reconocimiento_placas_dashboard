@@ -263,8 +263,11 @@ def clean_text(text: str) -> str:
         'B': '8', '8': 'B',  # Intercambiar B y 8
         'Z': '2', '2': 'Z',  # Intercambiar Z y 2
         'G': '6', '6': 'G',  # Intercambiar G y 6
+        'T': '7', '7': 'T',  # Intercambiar T y 7
+        'M': 'N', 'N': 'M',  # Intercambiar M y N
+        'V': 'U', 'U': 'V',  # Intercambiar V y U
+        'X': 'K', 'K': 'X',  # Intercambiar X y K
     }
-    
     # Generar variaciones
     variations = [cleaned]
     for i, char in enumerate(cleaned):

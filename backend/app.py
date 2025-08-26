@@ -4,7 +4,7 @@
 import os
 import cv2
 import base64
-from flask import Flask, render_template, Response, jsonify, request
+from flask import Flask, render_template, request, jsonify, send_file
 from flask_socketio import SocketIO
 from flask_cors import CORS
 import threading
@@ -109,29 +109,65 @@ def delete_plate_endpoint():
     except Exception as e:
         return jsonify({"success": False, "message": f"Error: {str(e)}"}), 500
 
-@app.route('/api/sunarp/consult', methods=['POST'])
+@app.route('/api/sunarp/consult', methods=['POST', 'GET'])
 def consult_sunarp_endpoint():
     """Consulta información vehicular en SUNARP."""
     try:
-        data = request.get_json()
-        plate_text = data.get('plate')
-        
-        if not plate_text:
-            return jsonify({"success": False, "message": "Placa requerida"}), 400
-        
-        # Realizar consulta SUNARP
-        result = consult_vehicle_sunarp(plate_text)
-        
-        # Si hay screenshot en el resultado, incluirlo en la respuesta
-        if result.get('success') and 'screenshot' in result:
-            return jsonify({
-                'success': result['success'],
-                'data': result['data'],
-                'screenshot': result['screenshot']
-            })
+        if request.method == 'GET':
+            # Para las descargas PDF via GET
+            plate_text = request.args.get('placa')
+            formato = request.args.get('formato', 'json')
+            
+            if not plate_text:
+                return jsonify({"success": False, "message": "Placa requerida"}), 400
+                
+            # Quitar guiones para la consulta SUNARP
+            plate_text_sunarp = plate_text.replace('-', '')
+            
+            if formato == 'pdf':
+                pdf_filename = f"sunarp_{plate_text}.pdf"
+                result = consult_vehicle_sunarp(plate_text_sunarp, pdf_filename=pdf_filename)
+                
+                if result.get('success') and result.get('pdf'):
+                    # La ruta del PDF debería estar completa desde consult_vehicle_sunarp
+                    pdf_path = result.get('pdf_path')
+                    if pdf_path and os.path.exists(pdf_path):
+                        return send_file(pdf_path, as_attachment=True, download_name=result.get('pdf'))
+                    else:
+                        # Fallback: buscar en static
+                        pdf_path = os.path.join('static', result.get('pdf'))
+                        if os.path.exists(pdf_path):
+                            return send_file(pdf_path, as_attachment=True, download_name=result.get('pdf'))
+                        else:
+                            return jsonify({"success": False, "message": "PDF no encontrado"}), 404
+                else:
+                    return jsonify({"success": False, "message": "Error generando PDF"}), 500
+            else:
+                result = consult_vehicle_sunarp(plate_text_sunarp)
+                return jsonify(result)
         else:
-            return jsonify(result)
-        
+            # Método POST original
+            data = request.get_json()
+            plate_text = data.get('plate')
+            pdf = data.get('pdf', False)
+            if not plate_text:
+                return jsonify({"success": False, "message": "Placa requerida"}), 400
+            # Quitar guiones para la consulta SUNARP
+            plate_text_sunarp = plate_text.replace('-', '')
+            pdf_filename = None
+            if pdf:
+                pdf_filename = f"sunarp_{plate_text}.pdf"
+            result = consult_vehicle_sunarp(plate_text_sunarp, pdf_filename=pdf_filename)
+            if result.get('success'):
+                response = {
+                    'success': True,
+                    'data': result.get('datos'),
+                    'html': result.get('html'),
+                    'pdf': result.get('pdf')
+                }
+                return jsonify(response)
+            else:
+                return jsonify(result)
     except Exception as e:
         return jsonify({"success": False, "message": f"Error en consulta SUNARP: {str(e)}"}), 500
 

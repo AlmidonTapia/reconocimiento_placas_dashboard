@@ -649,20 +649,37 @@
         }
 
         /* Botones de exportar */
+        .export-buttons {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
         .export-btn {
-            padding: 0.5rem 1rem;
-            background-color: var(--primary-color);
+            padding: 0.6rem 1.25rem;
+            background: linear-gradient(135deg, var(--primary-color) 0%, #3b66cc 100%);
             color: white;
             border: none;
-            border-radius: 6px;
+            border-radius: 8px;
             font-family: "Poppins", sans-serif;
             font-size: 0.9rem;
+            font-weight: 500;
             cursor: pointer;
-            transition: background-color 0.2s ease;
+            transition: all 0.2s ease;
+            box-shadow: var(--shadow);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
         }
 
         .export-btn:hover {
-            background-color: #3b66cc;
+            background: linear-gradient(135deg, #3b66cc 0%, #2c4f99 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(74, 128, 255, 0.3);
+        }
+
+        .export-btn:active {
+            transform: translateY(0);
         }
     </style>
 </head>
@@ -764,7 +781,18 @@
         </div>
 
         <div class="plates-section">
-            <h2>Placas Detectadas Recientemente</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                <h2 style="margin-bottom: 0;">Placas Detectadas Recientemente</h2>
+                <div class="export-buttons">
+                    <button class="export-btn" onclick="exportToCSV()" title="Exportar registros en formato CSV">
+                        📊 Exportar CSV
+                    </button>
+                    <button class="export-btn" onclick="exportToPDF()" title="Exportar registros en formato PDF"
+                        style="margin-left: 0.5rem;">
+                        📄 Exportar PDF
+                    </button>
+                </div>
+            </div>
             <table class="plates-table">
                 <thead>
                     <tr>
@@ -1285,103 +1313,22 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
-                        const info = data.data;
-                        let screenshotHtml = '';
-
-                        // Mostrar screenshot si está disponible
-                        if (data.screenshot) {
-                            // Decodificar el HTML capturado
-                            const decodedHtml = atob(data.screenshot);
-                            screenshotHtml = `
-                                <div style="margin-bottom: 20px;">
-                                    <h4 style="margin-bottom: 12px;">Captura de SUNARP</h4>
-                                    <div style="max-width: 100%; border-radius: 8px; border: 1px solid #e2e8f0; max-height: 300px; overflow-y: auto; background: #f8f9fa;">
-                                        ${decodedHtml}
-                                    </div>
-                                </div>
-                            `;
+                        let html = data.html || '';
+                        let pdfBtn = '';
+                        if (data.pdf) {
+                            pdfBtn = `<a href="/static/${data.pdf}" target="_blank" class="export-btn" style="margin-top:12px;">Descargar PDF</a>`;
                         }
-
                         sunarpContent.innerHTML = `
-                        ${screenshotHtml}
-                        <div class="sunarp-info">
-                            <h4>Información del Vehículo</h4>
-                            <div class="info-row">
-                                <span class="info-label">Placa:</span>
-                                <span class="info-value">${info.placa || 'No disponible'}</span>
-                            </div>
-                            ${info.serie ? `
-                            <div class="info-row">
-                                <span class="info-label">N° Serie:</span>
-                                <span class="info-value">${info.serie}</span>
-                            </div>
-                            ` : ''}
-                            ${info.vin ? `
-                            <div class="info-row">
-                                <span class="info-label">N° VIN:</span>
-                                <span class="info-value">${info.vin}</span>
-                            </div>
-                            ` : ''}
-                            ${info.motor ? `
-                            <div class="info-row">
-                                <span class="info-label">N° Motor:</span>
-                                <span class="info-value">${info.motor}</span>
-                            </div>
-                            ` : ''}
-                            ${info.propietario ? `
-                            <div class="info-row">
-                                <span class="info-label">Propietario:</span>
-                                <span class="info-value">${info.propietario}</span>
-                            </div>
-                            ` : ''}
-                            <div class="info-row">
-                                <span class="info-label">Marca:</span>
-                                <span class="info-value">${info.marca || 'No disponible'}</span>
-                            </div>
-                            <div class="info-row">
-                                <span class="info-label">Modelo:</span>
-                                <span class="info-value">${info.modelo || 'No disponible'}</span>
-                            </div>
-                            ${info.año ? `
-                            <div class="info-row">
-                                <span class="info-label">Año:</span>
-                                <span class="info-value">${info.año}</span>
-                            </div>
-                            ` : ''}
-                            <div class="info-row">
-                                <span class="info-label">Color:</span>
-                                <span class="info-value">${info.color || 'No disponible'}</span>
-                            </div>
-                            <div class="info-row">
-                                <span class="info-label">Estado:</span>
-                                <span class="info-value">${info.estado || 'No disponible'}</span>
-                            </div>
-                            ${info.placa_vigente ? `
-                            <div class="info-row">
-                                <span class="info-label">Placa Vigente:</span>
-                                <span class="info-value">${info.placa_vigente}</span>
-                            </div>
-                            ` : ''}
-                            ${info.placa_anterior ? `
-                            <div class="info-row">
-                                <span class="info-label">Placa Anterior:</span>
-                                <span class="info-value">${info.placa_anterior}</span>
-                            </div>
-                            ` : ''}
-                            ${info.sede ? `
-                            <div class="info-row">
-                                <span class="info-label">Sede:</span>
-                                <span class="info-value">${info.sede}</span>
-                            </div>
-                            ` : ''}
-                            ${info.anotaciones ? `
-                            <div class="info-row">
-                                <span class="info-label">Anotaciones:</span>
-                                <span class="info-value">${info.anotaciones}</span>
-                            </div>
-                            ` : ''}
-                        </div>
-                    `;
+                            ${html}
+                            ${pdfBtn}
+                        `;
+
+                        // Función para descargar PDF (disponible globalmente)
+                        window.descargarPDF = function (placa) {
+                            console.log('Descargando PDF para placa:', placa);
+                            const url = `/api/sunarp/consult?placa=${placa}&formato=pdf`;
+                            window.open(url, '_blank');
+                        };
                     } else {
                         sunarpContent.innerHTML = `
                         <div class="error-message">
@@ -1415,6 +1362,68 @@
 
         // Actualizar estado del cache cada 10 segundos
         setInterval(updateCacheStatus, 10000);
+
+        // Funciones de exportación
+        function exportToCSV() {
+            fetch('/api/plates')
+                .then(response => response.json())
+                .then(plates => {
+                    if (plates.length === 0) {
+                        alert('No hay registros para exportar');
+                        return;
+                    }
+
+                    // Crear contenido CSV
+                    let csvContent = "Placa,Fecha y Hora,Cámara,Estado\n";
+                    plates.forEach(plate => {
+                        const fecha = new Date(plate.timestamp).toLocaleString();
+                        csvContent += `"${plate.plate}","${fecha}","${plate.camera}","Almacenada"\n`;
+                    });
+
+                    // Crear archivo y descargarlo
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement("a");
+                    const url = URL.createObjectURL(blob);
+                    link.setAttribute("href", url);
+                    link.setAttribute("download", `placas_detectadas_${new Date().toISOString().split('T')[0]}.csv`);
+                    link.style.visibility = 'hidden';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                })
+                .catch(error => {
+                    console.error('Error al exportar CSV:', error);
+                    alert('Error al exportar los datos');
+                });
+        }
+
+        function exportToPDF() {
+            // Solicitar al backend que genere el PDF
+            fetch('/api/plates/export/pdf', {
+                method: 'GET'
+            })
+                .then(response => {
+                    if (response.ok) {
+                        return response.blob();
+                    }
+                    throw new Error('Error al generar PDF');
+                })
+                .then(blob => {
+                    // Crear URL para descargar el PDF
+                    const url = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `placas_detectadas_${new Date().toISOString().split('T')[0]}.pdf`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    window.URL.revokeObjectURL(url);
+                })
+                .catch(error => {
+                    console.error('Error al exportar PDF:', error);
+                    alert('Error al exportar PDF. Asegúrate de que el backend soporte esta función.');
+                });
+        }
 
         console.log('Dashboard inicializado');
     </script>

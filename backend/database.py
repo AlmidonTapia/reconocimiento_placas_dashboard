@@ -92,6 +92,15 @@ def add_plate_reading(plate_text, camera_source="unknown", image_path=None, imag
     Returns:
         bool: True si la inserción fue exitosa, False si es duplicado o error.
     """
+    # Validar formato peruano antes de guardar
+    from ocr_processor import is_valid_peruvian_plate, clean_text
+    plate_text_clean = clean_text(plate_text)
+    if not plate_text_clean or not is_valid_peruvian_plate(plate_text_clean):
+        print(f"Intento de añadir matrícula inválida: '{plate_text}'. Ignorando.")
+        return False
+
+    # Usar solo el texto limpio para deduplicación y almacenamiento
+    plate_text = plate_text_clean
     if not plate_text or not plate_text.strip():
         print("Intento de añadir matrícula vacía. Ignorando.")
         return False
@@ -100,7 +109,8 @@ def add_plate_reading(plate_text, camera_source="unknown", image_path=None, imag
     cleanup_cache()
     
     current_time = datetime.now()
-    cache_key = f"{plate_text}_{camera_source}"
+    # Deduplicación global (no solo por cámara)
+    cache_key = plate_text
     
     # Verificar primero en el cache (más rápido)
     if cache_key in plate_cache:
@@ -120,19 +130,15 @@ def add_plate_reading(plate_text, camera_source="unknown", image_path=None, imag
         if cache_key not in plate_cache:
             limit_time = current_time - timedelta(seconds=dedup_seconds)
             limit_timestamp = limit_time.strftime("%Y-%m-%d %H:%M:%S")
-            
+            # Buscar duplicados recientes en cualquier cámara
             cursor.execute('''
                 SELECT COUNT(*) FROM plates 
                 WHERE plate_text = ? 
-                AND camera_source = ? 
                 AND timestamp > ?
-            ''', (plate_text, camera_source, limit_timestamp))
-            
+            ''', (plate_text, limit_timestamp))
             recent_count = cursor.fetchone()[0]
-            
             if recent_count > 0:
                 print(f"Placa {plate_text} ya registrada recientemente en BD. Ignorando duplicado.")
-                # Actualizar cache para evitar futuras consultas
                 plate_cache[cache_key] = current_time
                 return False
         

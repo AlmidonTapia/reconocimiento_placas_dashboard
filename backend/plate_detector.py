@@ -44,52 +44,63 @@ def detect_and_process_plates(frame: np.ndarray, camera_source: str) -> tuple[np
         torch.cuda.empty_cache()
 
     # results[0].boxes contiene las cajas de las detecciones
+    seen_plates = set()
     for box in results[0].boxes:
-        # Obtener las coordenadas de la caja (x1, y1, x2, y2)
         x1, y1, x2, y2 = map(int, box.xyxy[0])
-        
-        # Obtener la confianza y la clase
         confidence = float(box.conf[0])
         class_id = int(box.cls[0])
         class_name = model.names[class_id]
-        
-        # Nos aseguramos de que la clase sea 'license_plate' o la que corresponda
-        # (El modelo que descargamos usa 'license-plate')
-        if 'license' in class_name.lower():
-            # Recortar la imagen de la matrícula del frame original
+        if 'license' in class_name.lower() and confidence >= 0.60:
             plate_crop = frame[y1:y2, x1:x2]
-            
-            # Guardar la imagen recortada para referencia y posible re-entrenamiento
             saved_image_path = save_capture(plate_crop)
-
-            # Realizar OCR en la matrícula recortada
             plate_text = perform_ocr(plate_crop)
-            
-            # Convertir imagen a base64 para guardar en BD
-            plate_image_base64 = ""
-            try:
-                _, buffer = cv2.imencode('.jpg', plate_crop)
-                plate_image_base64 = base64.b64encode(buffer).decode('utf-8')
-            except Exception as e:
-                print(f"Error al convertir imagen a base64: {e}")
-            
-            # Dibujar la caja delimitadora en el frame
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            
-            # Preparar la etiqueta con el texto y la confianza
-            label = f"{plate_text} ({confidence:.2f})"
-            
-            # Dibujar un fondo para la etiqueta
-            (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-            cv2.rectangle(frame, (x1, y1 - h - 10), (x1 + w, y1), (0, 255, 0), -1)
-            
-            # Escribir el texto de la matrícula reconocida
-            cv2.putText(frame, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
-
-            # Si el OCR tuvo éxito, añadir a la lista de resultados
-            if plate_text:
+            from ocr_processor import is_valid_peruvian_plate, clean_text
+            plate_text_clean = clean_text(plate_text)
+            # Corrección automática de confusiones comunes (X/K, S/5, Z/2, G/6, B/8, I/1, O/0, etc)
+            confusion_pairs = [
+                ("X", "K"), ("K", "X"),
+                ("S", "5"), ("5", "S"),
+                ("Z", "2"), ("2", "Z"),
+                ("G", "6"), ("6", "G"),
+                ("B", "8"), ("8", "B"),
+                ("I", "1"), ("1", "I"),
+                ("O", "0"), ("0", "O"),
+                ("V", "I"), ("I", "V")
+            ]
+            # Generar todas las variantes posibles cambiando cada par de confusión
+            def generate_variants(base):
+                variants = set([base])
+                for a, b in confusion_pairs:
+                    if a in base:
+                        v = base.replace(a, b)
+                        if v != base:
+                            variants.add(v)
+                return variants
+            alternatives = set()
+            if plate_text_clean and is_valid_peruvian_plate(plate_text_clean):
+                alternatives.add(plate_text_clean)
+            # Generar variantes recursivamente (una pasada)
+            for alt in list(alternatives):
+                alternatives.update(generate_variants(alt))
+            # Filtrar solo placas válidas
+            valid_alternatives = set([p for p in alternatives if is_valid_peruvian_plate(p)])
+            for alt_plate in valid_alternatives:
+                if not alt_plate or alt_plate in seen_plates:
+                    continue
+                seen_plates.add(alt_plate)
+                plate_image_base64 = ""
+                try:
+                    _, buffer = cv2.imencode('.jpg', plate_crop)
+                    plate_image_base64 = base64.b64encode(buffer).decode('utf-8')
+                except Exception as e:
+                    print(f"Error al convertir imagen a base64: {e}")
+                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                label = f"{alt_plate} ({confidence:.2f})"
+                (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+                cv2.rectangle(frame, (x1, y1 - h - 10), (x1 + w, y1), (0, 255, 0), -1)
+                cv2.putText(frame, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
                 detected_plates.append({
-                    "plate_text": plate_text,
+                    "plate_text": alt_plate,
                     "confidence": confidence,
                     "box": [x1, y1, x2, y2],
                     "image_path": saved_image_path,

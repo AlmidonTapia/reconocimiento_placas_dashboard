@@ -1,431 +1,473 @@
-# backend/sunarp_scraper.py
-# Módulo para realizar consultas de información vehicular en SUNARP
-
 import requests
 from bs4 import BeautifulSoup
 import time
-import random
 import base64
-import os
-import re
-from urllib.parse import urljoin
+import zlib
+import xml.etree.ElementTree as ET
+import io
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
-class SunarpScraper:
-    def __init__(self):
-        self.base_url = "https://www2.sunarp.gob.pe/consulta-vehicular"
-        self.session = requests.Session()
-        # Headers para simular un navegador real
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-            'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'DNT': '1',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Cache-Control': 'max-age=0'
-        })
-        
-        # Directorio para capturas
-        self.screenshots_dir = os.path.join(os.path.dirname(__file__), '..', 'data', 'screenshots')
-        os.makedirs(self.screenshots_dir, exist_ok=True)
-        
-    def consult_plate(self, plate_number):
-        """
-        Consulta información de una placa en SUNARP con scraping usando requests
-        
-        Args:
-            plate_number (str): Número de placa a consultar
-            
-        Returns:
-            dict: Información del vehículo o error
-        """
-        try:
-            # Limpiar el número de placa
-            plate_number = plate_number.strip().upper().replace(' ', '')
-            
-            # Validar formato de placa peruana
-            if not self._validate_plate_format(plate_number):
-                return {
-                    'success': False,
-                    'message': f'Formato de placa inválido: {plate_number}. Formatos válidos: ABC123, ABC-123, A1B234, X4K-240'
-                }
-            
-            print(f"Consultando placa en SUNARP: {plate_number}")
-            
-            # Realizar la consulta usando requests (más estable)
-            result = self._perform_requests_consultation(plate_number)
-            
-            return result
-            
-        except Exception as e:
-            print(f"Error en consulta SUNARP: {e}")
-            return {
-                'success': False,
-                'message': f'Error en consulta: {str(e)}. SUNARP puede no estar disponible en este momento.'
-            }
-    
-    def _perform_requests_consultation(self, plate_number):
-        """Realiza la consulta usando requests (sin Selenium)"""
-        try:
-            print(f"Consultando con requests...")
-            
-            # Probar diferentes URLs posibles para SUNARP
-            possible_urls = [
-                f"{self.base_url}",
-                f"{self.base_url}/",
-                "https://www.sunarp.gob.pe/consulta-vehicular",
-                "https://consultas.sunarp.gob.pe/ConsultasVehiculo/Index",
-                "https://www.sunarp.gob.pe/ConsultasVehiculo"
-            ]
-            
-            initial_response = None
-            working_url = None
-            
-            # Probar las diferentes URLs hasta encontrar una que funcione
-            for url in possible_urls:
-                try:
-                    print(f"Probando URL: {url}")
-                    response = self.session.get(url, timeout=10)
-                    if response.status_code == 200:
-                        initial_response = response
-                        working_url = url
-                        print(f"URL funcionando encontrada: {url}")
-                        break
-                    else:
-                        print(f"URL {url} devolvió código {response.status_code}")
-                except Exception as e:
-                    print(f"Error con URL {url}: {e}")
-                    continue
-            
-            if not initial_response or not working_url:
-                return {
-                    'success': False,
-                    'message': 'El servicio de SUNARP no está disponible en este momento. Todas las URLs probadas fallaron.'
-                }
-            
-            soup = BeautifulSoup(initial_response.text, 'html.parser')
-            
-            # Crear una captura del contenido encontrado
-            screenshot_base64 = self._create_html_screenshot(initial_response.text, plate_number)
-            
-            # Intentar encontrar información en la página
-            result = self._parse_results(initial_response.text, plate_number)
-            
-            # Si no encontramos información específica, simular una consulta exitosa con datos de ejemplo
-            if not result.get('success'):
-                # Simulación de datos para demostración
-                simulated_data = {
-                    'placa': plate_number,
-                    'marca': 'HYUNDAI',
-                    'modelo': 'ACCENT', 
-                    'color': 'AZUL',
-                    'año': '2018',
-                    'estado': 'EN CIRCULACION',
-                    'propietario': 'INFORMACIÓN RESTRINGIDA',
-                    'nota': f'Consulta realizada para placa {plate_number} - Datos simulados ya que el servicio web de SUNARP puede tener restricciones de acceso'
-                }
-                
-                result = {
-                    'success': True,
-                    'data': simulated_data
-                }
-            
-            # Agregar screenshot al resultado
-            if screenshot_base64:
-                result['screenshot'] = screenshot_base64
-            
-            return result
-                
-        except requests.RequestException as e:
-            print(f"Error de conexión: {e}")
-            return {
-                'success': False,
-                'message': f'Error de conexión con SUNARP: {str(e)}. El servicio puede estar temporalmente no disponible.'
-            }
-        except Exception as e:
-            print(f"Error general: {e}")
-            return {
-                'success': False,
-                'message': f'Error durante la consulta: {str(e)}'
-            }
-    
-    def _create_html_screenshot(self, html_content, plate_number):
-        """Crea una representación visual del HTML como imagen (simulación)"""
-        try:
-            # En lugar de screenshot, vamos a generar un HTML simplificado
-            # que se puede mostrar como "captura"
-            soup = BeautifulSoup(html_content, 'html.parser')
-            
-            # Extraer contenido relevante
-            body_text = soup.get_text()
-            
-            # Crear un HTML simple con el contenido
-            html_capture = f"""
-            <div style="font-family: Arial, sans-serif; padding: 20px; background: white; border: 1px solid #ddd;">
-                <h3>Resultado de consulta SUNARP - Placa: {plate_number}</h3>
-                <div style="white-space: pre-wrap; font-size: 12px; line-height: 1.4;">
-                    {body_text[:2000]}...
-                </div>
-                <p style="color: #666; font-size: 11px; margin-top: 20px;">
-                    Captura generada el {time.strftime('%d/%m/%Y %H:%M:%S')}
-                </p>
-            </div>
-            """
-            
-            # Convertir a base64 (como texto HTML)
-            html_base64 = base64.b64encode(html_capture.encode('utf-8')).decode('utf-8')
-            
-            return html_base64
-            
-        except Exception as e:
-            print(f"Error creando captura HTML: {e}")
-            return None
-    
-    def _validate_plate_format(self, plate):
-        """Valida el formato de placa peruana"""
-        # Formatos válidos de placas peruanas:
-        # ABC-123, ABC123, A1B-234, X4K-240, etc.
-        patterns = [
-            r'^[A-Z0-9]{3}[-]?[0-9]{3,4}$',  # ABC-123, ABC123, A1B-234
-            r'^[A-Z]{1}[0-9]{1}[A-Z]{1}[-]?[0-9]{3,4}$',  # A1B-234, X4K-240
-            r'^[A-Z]{2}[0-9]{1}[-]?[0-9]{3,4}$',  # AB1-234
-            r'^[A-Z]{3}[-]?[0-9]{2}[A-Z]{1}$',  # ABC-12A (formato especial)
-        ]
-        
-        # Probar cada patrón
-        for pattern in patterns:
-            if re.match(pattern, plate):
-                return True
-        
-        # Si ningún patrón coincide, intentar una validación más general
-        # Debe tener entre 6 y 8 caracteres, letras y números
-        general_pattern = r'^[A-Z0-9-]{6,8}$'
-        return bool(re.match(general_pattern, plate))
-    
-    def _get_initial_page(self):
-        """Obtiene la página inicial del formulario"""
-        try:
-            url = f"{self.base_url}/inicio"
-            response = self.session.get(url, timeout=10)
-            response.raise_for_status()
-            
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Buscar tokens CSRF u otros campos ocultos necesarios
-            csrf_token = None
-            form = soup.find('form')
-            
-            if form:
-                csrf_input = form.find('input', {'name': '_token'})
-                if csrf_input:
-                    csrf_token = csrf_input.get('value')
-            
-            return {
-                'success': True,
-                'data': {
-                    'csrf_token': csrf_token,
-                    'cookies': self.session.cookies,
-                    'soup': soup
-                }
-            }
-            
-        except requests.RequestException as e:
-            return {
-                'success': False,
-                'message': f'Error al acceder a SUNARP: {str(e)}'
-            }
-    
-    def _perform_consultation(self, plate, initial_data):
-        """Realiza la consulta de la placa"""
-        try:
-            # Simular tiempo de espera humano
-            time.sleep(random.uniform(1, 3))
-            
-            # Preparar datos del formulario
-            form_data = {
-                'placa': plate,
-                'tipo_busqueda': 'placa'
-            }
-            
-            # Agregar token CSRF si está disponible
-            if initial_data.get('csrf_token'):
-                form_data['_token'] = initial_data['csrf_token']
-            
-            # URL de consulta (puede variar según la estructura actual de SUNARP)
-            consultation_url = f"{self.base_url}/buscar"
-            
-            response = self.session.post(
-                consultation_url, 
-                data=form_data, 
-                timeout=15,
-                allow_redirects=True
-            )
-            response.raise_for_status()
-            
-            # Parsear respuesta
-            return self._parse_results(response.text, plate)
-            
-        except requests.RequestException as e:
-            return {
-                'success': False,
-                'message': f'Error en la consulta: {str(e)}'
-            }
-    
-    def _parse_results(self, html_content, plate):
-        """Parsea los resultados de la consulta"""
-        try:
-            soup = BeautifulSoup(html_content, 'html.parser')
-            
-            # Buscar indicadores de error
-            error_indicators = [
-                'no se encontró',
-                'no encontrado',
-                'no existe',
-                'error',
-                'no válido',
-                'no registrado'
-            ]
-            
-            page_text = soup.get_text().lower()
-            for indicator in error_indicators:
-                if indicator in page_text:
-                    return {
-                        'success': False,
-                        'message': f'Vehículo con placa {plate} no encontrado en SUNARP'
-                    }
-            
-            # Extraer información del vehículo
-            vehicle_info = {'placa': plate}
-            
-            # Buscar patrones específicos de SUNARP
-            text_content = soup.get_text()
-            
-            # Patrones mejorados basados en la estructura real de SUNARP
-            patterns = {
-                'serie': r'N°?\s*SERIE[:\s]*([A-Z0-9]+)',
-                'vin': r'N°?\s*VIN[:\s]*([A-Z0-9]+)',
-                'motor': r'N°?\s*MOTOR[:\s]*([A-Z0-9]+)',
-                'color': r'COLOR[:\s]*([A-ZÁÉÍÓÚÑ\s]+?)(?=\n|MARCA|MODELO|AÑO)',
-                'marca': r'MARCA[:\s]*([A-ZÁÉÍÓÚÑ\s]+?)(?=\n|MODELO|AÑO|COLOR)',
-                'modelo': r'MODELO[:\s]*([A-ZÁÉÍÓÚÑ\d\s\-]+?)(?=\n|AÑO|COLOR|PLACA)',
-                'placa_vigente': r'PLACA\s+VIGENTE[:\s]*([A-Z0-9\-]+)',
-                'placa_anterior': r'PLACA\s+ANTERIOR[:\s]*([A-Z0-9\-\s]+?)(?=\n|ESTADO)',
-                'estado': r'ESTADO[:\s]*([A-ZÁÉÍÓÚÑ\s]+?)(?=\n|ANOTACIONES)',
-                'anotaciones': r'ANOTACIONES[:\s]*([A-ZÁÉÍÓÚÑ\s]+?)(?=\n|SEDE)',
-                'sede': r'SEDE[:\s]*([A-ZÁÉÍÓÚÑ\s]+?)(?=\n|AÑO)',
-                'año': r'AÑO\s+DE\s+MODELO[:\s]*(\d{4})',
-                'propietario': r'PROPIETARIO\(S\)[:\s]*([A-ZÁÉÍÓÚÑ\s,\.]+?)(?=\n|\r|$)'
-            }
-            
-            for key, pattern in patterns.items():
-                match = re.search(pattern, text_content.upper(), re.IGNORECASE | re.MULTILINE)
-                if match:
-                    value = match.group(1).strip()
-                    if value and value != 'NINGUNA' and value != 'NINGUNO':
-                        vehicle_info[key] = value
-            
-            # Intentar extraer información de tablas o divs de resultado
-            result_table = soup.find('table', class_='resultado') or soup.find('div', class_='datos-vehiculo')
-            
-            if result_table:
-                # Extraer datos de la tabla
-                rows = result_table.find_all('tr')
-                for row in rows:
-                    cells = row.find_all(['td', 'th'])
-                    if len(cells) >= 2:
-                        key = cells[0].get_text(strip=True).lower()
-                        value = cells[1].get_text(strip=True)
-                        
-                        # Mapear campos comunes
-                        if 'placa' in key:
-                            vehicle_info['placa'] = value
-                        elif 'propietario' in key or 'titular' in key:
-                            vehicle_info['propietario'] = value
-                        elif 'marca' in key:
-                            vehicle_info['marca'] = value
-                        elif 'modelo' in key:
-                            vehicle_info['modelo'] = value
-                        elif 'año' in key or 'fabricacion' in key:
-                            vehicle_info['año'] = value
-                        elif 'color' in key:
-                            vehicle_info['color'] = value
-                        elif 'estado' in key or 'situacion' in key:
-                            vehicle_info['estado'] = value
-            
-            # Si no se encontró suficiente información, usar texto libre
-            if len(vehicle_info) <= 1:
-                text_info = self._extract_from_text(text_content, plate)
-                vehicle_info.update(text_info)
-            
-            # Si encontramos información relevante, es exitoso
-            if len(vehicle_info) > 1:  # Más que solo la placa
-                return {
-                    'success': True,
-                    'data': vehicle_info
-                }
-            else:
-                return {
-                    'success': False,
-                    'message': 'No se pudo extraer información del vehículo. El servicio de SUNARP puede estar temporalmente no disponible.'
-                }
-                
-        except Exception as e:
-            return {
-                'success': False,
-                'message': f'Error al procesar resultados: {str(e)}'
-            }
-    
-    def _extract_from_text(self, text, plate):
-        """Extrae información del vehículo del texto libre"""
-        vehicle_info = {'placa': plate}
-        
-        # Patrones para extraer información (mismos que en _parse_results)
-        patterns = {
-            'serie': r'N°?\s*SERIE[:\s]*([A-Z0-9]+)',
-            'vin': r'N°?\s*VIN[:\s]*([A-Z0-9]+)',
-            'motor': r'N°?\s*MOTOR[:\s]*([A-Z0-9]+)',
-            'propietario': r'PROPIETARIO\(S\)[:\s]*([A-ZÁÉÍÓÚÑ\s,\.]+?)(?=\n|\r|MARCA|MODELO|AÑO)',
-            'marca': r'MARCA[:\s]*([A-ZÁÉÍÓÚÑ\s]+?)(?=\n|\r|MODELO|AÑO|COLOR)',
-            'modelo': r'MODELO[:\s]*([A-ZÁÉÍÓÚÑ\d\s\-]+?)(?=\n|\r|AÑO|COLOR|PLACA)',
-            'año': r'AÑO\s+DE\s+MODELO[:\s]*(\d{4})|AÑO[:\s]*(\d{4})',
-            'color': r'COLOR[:\s]*([A-ZÁÉÍÓÚÑ\s]+?)(?=\n|\r|ESTADO|MARCA|MODELO)',
-            'placa_vigente': r'PLACA\s+VIGENTE[:\s]*([A-Z0-9\-]+)',
-            'placa_anterior': r'PLACA\s+ANTERIOR[:\s]*([A-Z0-9\-\s]+?)(?=\n|ESTADO)',
-            'estado': r'ESTADO[:\s]*([A-ZÁÉÍÓÚÑ\s]+?)(?=\n|ANOTACIONES)',
-            'anotaciones': r'ANOTACIONES[:\s]*([A-ZÁÉÍÓÚÑ\s]+?)(?=\n|SEDE)',
-            'sede': r'SEDE[:\s]*([A-ZÁÉÍÓÚÑ\s]+?)(?=\n|AÑO)'
+class SunarpVehicularScraper:
+    def consulta_mtc_por_placa(self, placa):
+        """Consulta el servicio SOAP del MTC y retorna los datos del vehículo por placa (decodificados y descomprimidos)"""
+        url = "https://www.mtc.gob.pe/consultaccmf/sunarp.asmx"
+        headers = {
+            "Content-Type": "text/xml; charset=utf-8",
+            "SOAPAction": "http://tempuri.org/DatosH_VehiculoSUNARPxPlaca"
         }
+        body = f'''<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <DatosH_VehiculoSUNARPxPlaca xmlns="http://tempuri.org/">
+      <placaNueva>{placa}</placaNueva>
+    </DatosH_VehiculoSUNARPxPlaca>
+  </soap:Body>
+</soap:Envelope>'''
+        try:
+            resp = requests.post(url, data=body, headers=headers)
+            resp.raise_for_status()
+            # Parsear XML SOAP
+            try:
+                root = ET.fromstring(resp.content)
+            except Exception as parse_err:
+                return {'success': False, 'error': f"Error parseando XML SOAP: {parse_err}"}
+            # Buscar ArrayBytes en la respuesta SOAP
+            ns = {'soap': 'http://schemas.xmlsoap.org/soap/envelope/', 'ns': 'http://tempuri.org/'}
+            array_bytes = root.find('.//ns:ArrayBytes', ns)
+            if array_bytes is None or not array_bytes.text:
+                return {'success': False, 'error': 'No se encontró ArrayBytes en la respuesta SOAP'}
+            # Decodificar base64 y descomprimir gzip
+            compressed = base64.b64decode(array_bytes.text)
+            decompressed = zlib.decompress(compressed, 16+zlib.MAX_WBITS)
+            # El resultado es XML, parsear y retornar como string o dict
+            try:
+                result_xml = ET.fromstring(decompressed)
+            except Exception as parse_err:
+                return {'success': False, 'error': f"Error parseando XML de datos: {parse_err}"}
+            data = {child.tag: child.text for child in result_xml}
+            return {'success': True, 'data': data, 'xml': decompressed.decode('utf-8')}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def consulta_mtc_get_por_placa(self, placa):
+        """Consulta el endpoint HTTP GET del MTC y retorna los datos del vehículo por placa (decodificados y descomprimidos)"""
+        url = f"https://www.mtc.gob.pe/consultaccmf/sunarp.asmx/DatosH_VehiculoSUNARPxPlaca?placaNueva={placa}"
+        try:
+            resp = requests.get(url)
+            resp.raise_for_status()
+            # Parsear XML
+            try:
+                root = ET.fromstring(resp.content)
+            except Exception as parse_err:
+                return {'success': False, 'error': f"Error parseando XML GET: {parse_err}"}
+            array_bytes = root.find('.//{http://tempuri.org/}ArrayBytes')
+            if array_bytes is None or not array_bytes.text:
+                return {'success': False, 'error': 'No se encontró ArrayBytes en la respuesta GET'}
+            # Decodificar base64 y descomprimir gzip
+            compressed = base64.b64decode(array_bytes.text)
+            decompressed = zlib.decompress(compressed, 16+zlib.MAX_WBITS)
+            # Intentar parsear como XML, si falla mostrar como texto
+            try:
+                result_xml = ET.fromstring(decompressed)
+                data = {child.tag: child.text for child in result_xml}
+                return {'success': True, 'data': data, 'xml': decompressed.decode('utf-8')}
+            except Exception:
+                texto_datos = decompressed.decode(errors='replace')
+                datos_parseados = self.parsear_datos_mtc(texto_datos)
+                return {'success': True, 'data': datos_parseados, 'xml': texto_datos}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    def parsear_datos_mtc(self, texto_datos):
+        """Parsea los datos de texto del MTC y los estructura en un diccionario"""
+        resultado = {
+            'vehiculos': [],
+            'propietarios': []
+        }
+        lineas = texto_datos.strip().split('\n')
+        seccion_actual = None
+        for linea in lineas:
+            linea = linea.strip()
+            if linea == 'DATOS VEHICULO':
+                seccion_actual = 'vehiculo'
+                continue
+            elif linea == 'DATOS PROPIETARIO':
+                seccion_actual = 'propietario'
+                continue
+            if seccion_actual == 'vehiculo' and linea and not linea.startswith('DATOS'):
+                partes = linea.rstrip(';').split(',')
+                if len(partes) >= 12:
+                    vehiculo = {
+                        'id_registro': partes[0],
+                        'placa': partes[1],
+                        'placa_anterior': partes[2],
+                        'codigo_estado': partes[3],
+                        'categoria': partes[4],
+                        'marca': partes[5],
+                        'modelo': partes[6],
+                        'numero_serie': partes[7],
+                        'codigo_combustible': partes[8],
+                        'codigo_uso': partes[9],
+                        'codigo_carroceria': partes[10],
+                        'fecha_primera_inscripcion': partes[11],
+                        'id_ultimo_titulo': partes[12] if len(partes) > 12 else ''
+                    }
+                    resultado['vehiculos'].append(vehiculo)
+            elif seccion_actual == 'propietario' and linea and not linea.startswith('DATOS'):
+                partes = linea.rstrip(';').split(',')
+                if len(partes) >= 11:
+                    propietario = {
+                        'id_registro': partes[0],
+                        'razon_social': partes[1],
+                        'apellido_paterno': partes[2],
+                        'apellido_materno': partes[3],
+                        'nombres': partes[4],
+                        'tipo_documento': partes[5],
+                        'numero_documento': partes[6].strip(),
+                        'tipo_persona': partes[7],
+                        'codigo_estado': partes[8],
+                        'direccion': partes[9],
+                        'fecha_inscripcion': partes[10],
+                        'telefono': partes[11] if len(partes) > 11 else '',
+                        'id_titulo': partes[12] if len(partes) > 12 else '',
+                        'id_ultimo_titulo': partes[13] if len(partes) > 13 else ''
+                    }
+                    resultado['propietarios'].append(propietario)
+        return resultado
+
+    def generar_pdf(self, datos, filename):
+        """Genera un PDF con los datos del vehículo y propietario en formato profesional"""
+        import os
         
-        for key, pattern in patterns.items():
-            match = re.search(pattern, text.upper(), re.IGNORECASE | re.MULTILINE)
-            if match:
-                # Para el año, puede estar en group(1) o group(2)
-                if key == 'año':
-                    value = match.group(1) or match.group(2)
-                else:
-                    value = match.group(1)
-                
-                value = value.strip() if value else None
-                if value and value != 'NINGUNA' and value != 'NINGUNO':
-                    vehicle_info[key] = value
+        # Asegurar que el directorio static existe
+        static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static')
+        if not os.path.exists(static_dir):
+            os.makedirs(static_dir)
         
-        return vehicle_info if len(vehicle_info) > 1 else {}
+        # Ruta completa del archivo PDF
+        pdf_path = os.path.join(static_dir, filename)
+        
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=letter)
+        styles = getSampleStyleSheet()
+        elements = []
+        
+        # Agregar título
+        title = Paragraph("<b>REPORTE VEHICULAR SUNARP</b>", styles['Title'])
+        elements.append(title)
+        elements.append(Spacer(1, 20))
+        
+        vehiculos = datos.get('vehiculos', [])
+        propietarios = datos.get('propietarios', [])
+        
+        if vehiculos:
+            v = vehiculos[0]
+            elements.append(Paragraph("<b>Datos del Vehículo</b>", styles['Heading2']))
+            veh_table = [
+                ["Placa", v.get('placa', '')],
+                ["Marca", v.get('marca', '')],
+                ["Modelo", v.get('modelo', '')],
+                ["Categoría", v.get('categoria', '')],
+                ["N° Serie/VIN", v.get('numero_serie', '')],
+                ["Combustible", v.get('codigo_combustible', '')],
+                ["Uso", v.get('codigo_uso', '')],
+                ["Estado", v.get('codigo_estado', '')],
+                ["Fecha Inscripción", v.get('fecha_primera_inscripcion', '')],
+            ]
+            t = Table(veh_table, hAlign='LEFT')
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.black),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0,0), (-1,0), 8),
+                ('BACKGROUND', (0,1), (-1,-1), colors.whitesmoke),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.grey)
+            ]))
+            elements.append(t)
+            elements.append(Spacer(1, 12))
+            
+        if propietarios:
+            p = propietarios[0]
+            elements.append(Paragraph("<b>Datos del Propietario</b>", styles['Heading2']))
+            prop_table = [
+                ["Nombre", p.get('razon_social') or f"{p.get('nombres', '')} {p.get('apellido_paterno', '')} {p.get('apellido_materno', '')}"],
+                ["Tipo Documento", p.get('tipo_documento', '')],
+                ["N° Documento", p.get('numero_documento', '')],
+                ["Dirección", p.get('direccion', '')],
+                ["Fecha Inscripción", p.get('fecha_inscripcion', '')],
+            ]
+            t2 = Table(prop_table, hAlign='LEFT')
+            t2.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+                ('TEXTCOLOR', (0,0), (-1,0), colors.black),
+                ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+                ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+                ('BOTTOMPADDING', (0,0), (-1,0), 8),
+                ('BACKGROUND', (0,1), (-1,-1), colors.whitesmoke),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.grey)
+            ]))
+            elements.append(t2)
+            
+        doc.build(elements)
+        with open(pdf_path, 'wb') as f:
+            f.write(buffer.getvalue())
+        buffer.close()
+        
+        return pdf_path
+
+    def generar_html_sunarp_info(self, datos):
+        """Genera HTML con diseño profesional para info de vehículo, propietario y transferencias."""
+        # Diccionarios de códigos a etiquetas legibles
+        CATEGORIAS = {
+            'M1': 'Automóvil (hasta 8 pasajeros)',
+            'M2': 'Minibús',
+            'M3': 'Ómnibus',
+            'N1': 'Camioneta',
+            'N2': 'Camión',
+            'N3': 'Camión pesado',
+            'L1': 'Motocicleta',
+            'L2': 'Mototaxi',
+            'L3': 'Motocarga',
+            'L4': 'Cuatrimoto',
+        }
+        COMBUSTIBLES = {
+            '01': 'Gasolina', '02': 'Diesel', '03': 'GLP', '04': 'GNV', '05': 'Eléctrico', '06': 'Híbrido',
+            'GASOLINA': 'Gasolina', 'DIESEL': 'Diesel', 'GLP': 'GLP', 'GNV': 'GNV', 'ELECTRICO': 'Eléctrico', 'HIBRIDO': 'Híbrido'
+        }
+        USOS = {
+            '01': 'Transporte público', '02': 'Taxi', '03': 'Escolar', '04': 'Carga', '05': 'Turismo', '06': 'Particular',
+        }
+        ESTADOS = {
+            '01': 'En circulación', '02': 'Retirado', '03': 'Robado', '04': 'Chatarra', '05': 'Exportado', '06': 'Baja',
+        }
+        TIPOS_PERSONA = {
+            '01': 'Natural', '02': 'Jurídica', '06': 'Natural',
+        }
+        TIPOS_DOCUMENTO = {
+            '01': 'DNI', '02': 'RUC', '03': 'Carnet Extranjería', '04': 'Pasaporte', '05': 'PTP', '06': 'DNI',
+        }
+        def label(dic, val):
+            if not val or val == '-' or val == '0':
+                return '-'
+            return dic.get(str(val).zfill(2), dic.get(str(val), val))
+        vehiculos = datos.get('vehiculos', [])
+        propietarios = datos.get('propietarios', [])
+        transferencias = datos.get('transferencias', []) if 'transferencias' in datos else []
+        historicos = datos.get('propietarios_historicos', []) if 'propietarios_historicos' in datos else []
+        
+        # CSS profesional integrado
+        html = '''
+        <style>
+        .sunarp-container { font-family: 'Segoe UI', Arial, sans-serif; max-width: 800px; margin: 0 auto; }
+        .sunarp-header { background: linear-gradient(135deg, #1e3a8a, #3b82f6); color: white; padding: 20px; border-radius: 12px 12px 0 0; text-align: center; }
+        .sunarp-header h2 { margin: 0; font-size: 24px; font-weight: 600; }
+        .sunarp-header .placa { font-size: 18px; opacity: 0.9; margin-top: 5px; }
+        .sunarp-section { background: white; border: 1px solid #e5e7eb; margin-bottom: 20px; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .sunarp-section-header { background: #f8fafc; padding: 15px 20px; border-bottom: 1px solid #e5e7eb; }
+        .sunarp-section-header h3 { margin: 0; color: #1f2937; font-size: 18px; font-weight: 600; display: flex; align-items: center; }
+        .sunarp-section-header .icon { margin-right: 10px; font-size: 20px; }
+        .sunarp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 0; }
+        .sunarp-field { padding: 12px 20px; border-bottom: 1px solid #f3f4f6; display: flex; justify-content: space-between; align-items: center; }
+        .sunarp-field:last-child { border-bottom: none; }
+        .sunarp-field:nth-child(even) { background: #f9fafb; }
+        .sunarp-label { font-weight: 600; color: #374151; min-width: 140px; }
+        .sunarp-value { color: #1f2937; text-align: right; font-weight: 500; }
+        .sunarp-badge { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
+        .badge-active { background: #d1fae5; color: #065f46; }
+        .badge-inactive { background: #fee2e2; color: #991b1b; }
+        .sunarp-historial ul { list-style: none; padding: 0; margin: 0; }
+        .sunarp-historial li { padding: 12px 20px; border-bottom: 1px solid #f3f4f6; display: flex; align-items: center; }
+        .sunarp-historial li:last-child { border-bottom: none; }
+        .sunarp-historial .date { font-weight: 600; color: #3b82f6; margin-right: 15px; min-width: 100px; }
+        .sunarp-historial .desc { flex: 1; color: #374151; }
+        .sunarp-actions { padding: 20px; background: #f8fafc; border-top: 1px solid #e5e7eb; text-align: center; }
+        .download-btn { background: #059669; color: white; border: none; padding: 12px 24px; border-radius: 6px; font-weight: 600; cursor: pointer; transition: background 0.3s; }
+        .download-btn:hover { background: #047857; }
+        </style>
+        <div class="sunarp-container">'''
+        
+        if vehiculos:
+            v = vehiculos[0]
+            placa = v.get('placa', '-')
+            html += f'''
+            <div class="sunarp-header">
+                <h2>🚗 Consulta Vehicular SUNARP</h2>
+                <div class="placa">Placa: {placa}</div>
+            </div>
+            <div class="sunarp-section">
+                <div class="sunarp-section-header">
+                    <h3><span class="icon">🚙</span>Información del Vehículo</h3>
+                </div>
+                <div class="sunarp-grid">
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">N° Placa:</span>
+                        <span class="sunarp-value">{v.get('placa', '-') or '-'}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">Placa Anterior:</span>
+                        <span class="sunarp-value">{v.get('placa_anterior', '-') or '-'}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">Marca:</span>
+                        <span class="sunarp-value">{v.get('marca', '-') or '-'}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">Modelo:</span>
+                        <span class="sunarp-value">{v.get('modelo', '-') or '-'}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">Categoría:</span>
+                        <span class="sunarp-value">{label(CATEGORIAS, v.get('categoria', '-'))}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">N° Serie/VIN:</span>
+                        <span class="sunarp-value">{v.get('numero_serie', '-') or v.get('vin', '-') or '-'}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">Combustible:</span>
+                        <span class="sunarp-value">{label(COMBUSTIBLES, v.get('codigo_combustible', '-'))}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">Uso:</span>
+                        <span class="sunarp-value">{label(USOS, v.get('codigo_uso', '-'))}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">Estado:</span>
+                        <span class="sunarp-value">
+                            <span class="sunarp-badge {'badge-active' if v.get('codigo_estado') == '01' else 'badge-inactive'}">
+                                {label(ESTADOS, v.get('codigo_estado', '-') or v.get('estado', '-'))}
+                            </span>
+                        </span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">Fecha Inscripción:</span>
+                        <span class="sunarp-value">{v.get('fecha_primera_inscripcion', '-') or '-'}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">ID Último Título:</span>
+                        <span class="sunarp-value">{v.get('id_ultimo_titulo', '-') or '-'}</span>
+                    </div>
+                </div>
+            </div>'''
+        
+        if propietarios:
+            p = propietarios[0]
+            # Construir nombre completo correctamente
+            razon_social = p.get('razon_social', '').strip()
+            if razon_social and razon_social != '-' and razon_social != '':
+                nombre = razon_social
+            else:
+                nombres = p.get('nombres', '').strip()
+                ap_paterno = p.get('apellido_paterno', '').strip()
+                ap_materno = p.get('apellido_materno', '').strip()
+                # Construir nombre completo eliminando espacios extras
+                partes_nombre = [nombres, ap_paterno, ap_materno]
+                partes_validas = [parte for parte in partes_nombre if parte and parte != '-']
+                nombre = ' '.join(partes_validas) if partes_validas else '-'
+            html += f'''
+            <div class="sunarp-section">
+                <div class="sunarp-section-header">
+                    <h3><span class="icon">👤</span>Datos del Propietario</h3>
+                </div>
+                <div class="sunarp-grid">
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">Nombre:</span>
+                        <span class="sunarp-value">{nombre}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">Tipo Persona:</span>
+                        <span class="sunarp-value">{label(TIPOS_PERSONA, p.get('tipo_persona', '-'))}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">Tipo Documento:</span>
+                        <span class="sunarp-value">{label(TIPOS_DOCUMENTO, p.get('tipo_documento', '-'))}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">N° Documento:</span>
+                        <span class="sunarp-value">{p.get('numero_documento', '-') or '-'}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">Dirección:</span>
+                        <span class="sunarp-value">{p.get('direccion', '-') or '-'}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">Fecha Inscripción:</span>
+                        <span class="sunarp-value">{p.get('fecha_inscripcion', '-') or '-'}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">ID Título:</span>
+                        <span class="sunarp-value">{p.get('id_titulo', '-') or '-'}</span>
+                    </div>
+                    <div class="sunarp-field">
+                        <span class="sunarp-label">ID Último Título:</span>
+                        <span class="sunarp-value">{p.get('id_ultimo_titulo', '-') or '-'}</span>
+                    </div>
+                </div>
+            </div>'''
+        
+        if transferencias or historicos:
+            html += '''
+            <div class="sunarp-section">
+                <div class="sunarp-section-header">
+                    <h3><span class="icon">📋</span>Historial de Transferencias</h3>
+                </div>
+                <div class="sunarp-historial">
+                    <ul>'''
+            for t in transferencias:
+                fecha = t.get('fecha', '-')
+                desc = t.get('descripcion', '-')
+                idt = t.get('id_titulo', '-')
+                html += f'<li><span class="date">{fecha}</span><span class="desc">{desc} (ID: {idt})</span></li>'
+            if historicos:
+                html += '<li><span class="date">Histórico</span><span class="desc"><strong>Propietarios Anteriores:</strong></span></li>'
+                for h in historicos:
+                    nombre = h.get('nombre', '-')
+                    doc = h.get('documento', '-')
+                    fecha = h.get('fecha', '-')
+                    idt = h.get('id_titulo', '-')
+                    html += f'<li><span class="date">{fecha}</span><span class="desc">• {nombre} {doc} (ID:{idt})</span></li>'
+            html += '''
+                    </ul>
+                </div>
+            </div>'''
+        
+        # Agregar botón de descarga PDF
+        placa_clean = vehiculos[0].get('placa', 'vehiculo').replace('-', '') if vehiculos else 'vehiculo'
+        html += f'''
+        <div class="sunarp-actions">
+            <button class="download-btn" onclick="descargarPDF('{placa_clean}')">
+                📄 Descargar Reporte PDF
+            </button>
+        </div>
+        </div>'''
+        
+        return html
 
 # Función auxiliar para usar desde app.py
-def consult_vehicle_sunarp(plate_number):
+def consult_vehicle_sunarp(plate_number, pdf_filename=None):
     """
     Función auxiliar para consultar un vehículo en SUNARP
-    
     Args:
         plate_number (str): Número de placa
-        
+        pdf_filename (str): Si se indica, genera un PDF con los datos
     Returns:
         dict: Resultado de la consulta
     """
-    scraper = SunarpScraper()
-    return scraper.consult_plate(plate_number)
+    scraper = SunarpVehicularScraper()
+    resultado = scraper.consulta_mtc_get_por_placa(plate_number)
+    if resultado['success'] and 'data' in resultado:
+        datos = resultado['data']
+        html = scraper.generar_html_sunarp_info(datos)
+        pdf = None
+        pdf_path = None
+        if pdf_filename:
+            pdf_path = scraper.generar_pdf(datos, pdf_filename)
+            pdf = pdf_filename
+        return {'success': True, 'datos': datos, 'html': html, 'pdf': pdf, 'pdf_path': pdf_path}
+    else:
+        return {'success': False, 'error': resultado.get('error', 'Error desconocido')}
